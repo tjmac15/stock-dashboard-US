@@ -1,0 +1,58 @@
+name: Daily Stock Dashboard
+
+on:
+  schedule:
+    # 9:00am US/Eastern on weekdays. GitHub Actions cron is UTC, so this is
+    # 13:00 UTC (EST) most of the year / 12:00 UTC during EDT — 13:00 UTC is
+    # used here as a safe "after market open, once daylight saving shifts
+    # by an hour it's fine" choice. Adjust to taste.
+    - cron: "0 13 * * 1-5"
+  workflow_dispatch:   # lets you click "Run workflow" manually in the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run dashboard script
+        run: python trading_dashboard.py
+
+      - name: Prepare Pages site
+        run: |
+          mkdir -p _site
+          cp dashboard.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
