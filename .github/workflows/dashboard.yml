@@ -2,12 +2,13 @@ name: Daily Stock Dashboard
 
 on:
   schedule:
-    # 9:00am US/Eastern on weekdays. GitHub Actions cron is UTC, so this is
-    # 13:00 UTC (EST) most of the year / 12:00 UTC during EDT — 13:00 UTC is
-    # used here as a safe "after market open, once daylight saving shifts
-    # by an hour it's fine" choice. Adjust to taste.
-    - cron: "0 13 * * 1-5"
-  workflow_dispatch:   # lets you click "Run workflow" manually in the Actions tab
+    # Once daily, shortly after US market close (~4:30pm ET), so every
+    # signal is based on a fully finished trading day rather than a
+    # still-forming intraday price. 21:30 UTC = 4:30pm EDT (roughly
+    # March-November) / 5:30pm EST (winter) — shift by an hour if you
+    # want it pinned to the same local time year-round.
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
 
 permissions:
   contents: read
