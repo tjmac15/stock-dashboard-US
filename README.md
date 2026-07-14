@@ -41,8 +41,8 @@ pip install -r requirements.txt
 3. Open the generated `dashboard.html` in your browser.
 
 The default watchlist tracks the major US index ETFs instead of
-individual stocks — `SPY` (S&P 500), `QQQ` (Nasdaq-100), `DIA` (Dow),
-`IWM` (Russell 2000, small caps), and `VTI` (total US market). This
+individual stocks — `KO` (S&P 500), `WFC` (Nasdaq-100), `MRK` (Dow),
+`CSCO` (Russell 2000, small caps), and `XOM` (total US market). This
 lets you compare trend strength across indices side by side, rather
 than betting on any single company.
 
