@@ -42,7 +42,7 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # CONFIG — edit this section
 # ---------------------------------------------------------------------------
-WATCHLIST = ["KO", "WFC", "MRK", "CSCO", "XOM"]   # S&P 500, Nasdaq-100, Dow, Russell 2000, Total US Market
+WATCHLIST = ["WFC", "CSCO", "XOM", "TGT", "SBUX"]   # Wells Fargo, Cisco, ExxonMobil, Target, Starbucks ($50-150 range)
 LOOKBACK_PERIOD = "1y"      # how much history to pull (e.g. "6mo", "1y", "2y")
 SMA_FAST = 50
 SMA_SLOW = 200
