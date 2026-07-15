@@ -62,15 +62,14 @@ CURRENCY_SYMBOL = "$"
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    "apiKey": "AIzaSyD-abc123456789",
-    "authDomain": "stock-dashboard-12345.firebaseapp.com",
-    "projectId": "stock-dashboard-12345",
-    "storageBucket": "stock-dashboard-12345.appspot.com",
-    "messagingSenderId": "123456789012",
-    "appId": "1:123456789012:web:abcdef123456",
+    apiKey: "AIzaSyD-abc123456789",
+    authDomain: "stock-dashboard-12345.firebaseapp.com",
+    projectId: "stock-dashboard-12345",
+    storageBucket: "stock-dashboard-12345.appspot.com",
+    messagingSenderId: "123456789012",
+    appId: "1:123456789012:web:abcdef123456",
 }
------------------------------------------------------------------------
-
+#-----------------------------------------------------------------------
 
 def fetch_data(ticker: str, period: str) -> pd.DataFrame:
     """Download daily OHLCV data for a ticker."""
