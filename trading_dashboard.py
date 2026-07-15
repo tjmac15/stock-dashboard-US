@@ -81,6 +81,12 @@ def fetch_data(ticker: str, period: str) -> pd.DataFrame:
     # yfinance sometimes returns MultiIndex columns for a single ticker — flatten them
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+    # Yahoo sometimes includes a placeholder row for "today" before that day has actually
+    # traded (e.g. if this runs before market open), with empty Open/Close. Drop any such
+    # incomplete trailing rows so "latest" always means the last fully-completed session.
+    df = df.dropna(subset=["Open", "High", "Low", "Close"])
+    if df.empty:
+        raise ValueError(f"No complete trading data available for {ticker} after filtering.")
     return df
 
 
