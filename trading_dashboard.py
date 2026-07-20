@@ -1,4 +1,33 @@
 """
+Daily Stock Signal Dashboard
+=============================
+Pulls daily price history for a small watchlist, computes classic technical
+indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD signal for
+each stock, and writes everything to a single self-contained HTML dashboard
+you can open in your browser.
+
+This tool does NOT place trades. It only surfaces signals for you to review.
+
+HOW TO RUN
+----------
+1. Install dependencies (one time):
+       pip install yfinance pandas plotly
+
+2. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
+
+3. Run it:
+       python trading_dashboard.py
+
+4. Open the generated file:
+       dashboard.html
+
+5. (Optional) Automate the daily check:
+   - Mac/Linux: add a cron job, e.g. run at 9:00am every weekday:
+       0 9 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
+   - Windows: use Task Scheduler to run this script daily.
+
+DISCLAIMER
+----------
 This is a technical-analysis educational tool, not financial advice.
 Indicators are lagging by nature and can produce false signals, especially
 in choppy or low-volume markets. Always do your own research and consider
@@ -522,7 +551,7 @@ def build_dashboard(results: list[dict]) -> str:
 
 
 def fetch_fundamentals(ticker: str) -> dict:
-    """
+    ""
     Fetch basic fundamentals for a US ticker via yfinance (free). Returns an
     empty dict on any failure — fundamentals are a nice-to-have for the AI
     analysis, not something that should ever break the rest of the dashboard.
