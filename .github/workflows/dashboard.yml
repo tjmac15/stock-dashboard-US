@@ -35,6 +35,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run dashboard script
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python trading_dashboard.py
 
       - name: Prepare Pages site
