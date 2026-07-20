@@ -1,43 +1,16 @@
 """
-Daily Stock Signal Dashboard
-=============================
-Pulls daily price history for a small watchlist, computes classic technical
-indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD signal for
-each stock, and writes everything to a single self-contained HTML dashboard
-you can open in your browser.
-
-This tool does NOT place trades. It only surfaces signals for you to review.
-
-HOW TO RUN
-----------
-1. Install dependencies (one time):
-       pip install yfinance pandas plotly
-
-2. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-
-3. Run it:
-       python trading_dashboard.py
-
-4. Open the generated file:
-       dashboard.html
-
-5. (Optional) Automate the daily check:
-   - Mac/Linux: add a cron job, e.g. run at 9:00am every weekday:
-       0 9 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
-   - Windows: use Task Scheduler to run this script daily.
-
-DISCLAIMER
-----------
 This is a technical-analysis educational tool, not financial advice.
 Indicators are lagging by nature and can produce false signals, especially
 in choppy or low-volume markets. Always do your own research and consider
 your own risk tolerance before trading.
 """
 
+import os
 import sys
 from datetime import datetime
 
 import pandas as pd
+import requests
 
 # ---------------------------------------------------------------------------
 # CONFIG — edit this section
@@ -54,6 +27,16 @@ MACD_SLOW = 26
 MACD_SIGNAL = 9
 OUTPUT_FILE = "dashboard.html"
 CURRENCY_SYMBOL = "$"
+STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag your stop-loss
+TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal is still HOLD, flag taking some profit
+
+# Optional: AI-written analysis per stock, combining the technical signal with
+# real fundamentals (P/E, dividend yield, margins, growth — pulled free via
+# yfinance). Needs an Anthropic API key set as the ANTHROPIC_API_KEY
+# environment variable (see README.md). If it's not set, this is skipped
+# entirely and the dashboard works exactly as before — no AI section shown.
+ENABLE_AI_ANALYSIS = True
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"   # fast + cheap — plenty for a short daily summary
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
@@ -62,14 +45,15 @@ CURRENCY_SYMBOL = "$"
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
-    "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
-    "projectId": "stock-dashboard-1a7bd",
-    "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
-    "messagingSenderId": "466011958430",
-    "appId": "1:466011958430:web:434377d05c4ba90f691f8f",
+    "apiKey": "YOUR_API_KEY",
+    "authDomain": "YOUR_PROJECT_ID.firebaseapp.com",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_PROJECT_ID.appspot.com",
+    "messagingSenderId": "YOUR_SENDER_ID",
+    "appId": "YOUR_APP_ID",
 }
-#-----------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
 
 def fetch_data(ticker: str, period: str) -> pd.DataFrame:
     """Download daily OHLCV data for a ticker."""
@@ -263,18 +247,29 @@ def build_dashboard(results: list[dict]) -> str:
           <td><input type="number" step="1" min="0" class="pos-input qty-input" id="qty_{t}"
               placeholder="shares" oninput="updatePL('{t}')"></td>
           <td id="pl_{t}"><span style="color:#999;">—</span></td>
+          <td id="sugg_{t}"><span style="color:#999;">—</span></td>
         </tr>"""
 
     chart_sections = ""
     for r in results:
+        ai_html = ""
+        if r.get("ai_analysis"):
+            ai_html = f"""
+        <div class="ai-analysis">
+          <div class="ai-label">🤖 AI take on {r['ticker']}</div>
+          <div>{r['ai_analysis']}</div>
+          <div class="ai-caveat">AI-generated from the indicators (and fundamentals, where available) above — may be inaccurate, not financial advice.</div>
+        </div>"""
         chart_sections += f"""
         <div class="chart-card">
+          {ai_html}
           {r['chart_html']}
         </div>"""
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     current_prices_js = "{" + ", ".join(f'"{r["ticker"]}": {r["close"]}' for r in results) + "}"
+    signals_js = "{" + ", ".join(f'"{r["ticker"]}": "{r["signal"]}"' for r in results) + "}"
     firebase_config_js = "{" + ", ".join(f'"{k}": "{v}"' for k, v in FIREBASE_CONFIG.items()) + "}"
 
     return f"""<!DOCTYPE html>
@@ -303,6 +298,10 @@ def build_dashboard(results: list[dict]) -> str:
   .qty-input {{ width:70px; }}
   .position-note {{ margin-top:12px; padding:12px 16px; background:#eef4ff; border-left:4px solid #3b82f6;
                     font-size:0.82em; color:#444; border-radius:4px; }}
+  .ai-analysis {{ margin-bottom:16px; padding:14px 16px; background:#f6f0ff; border-left:4px solid #8b5cf6;
+                  border-radius:4px; font-size:0.9em; color:#333; line-height:1.5; }}
+  .ai-label {{ font-weight:700; color:#6d28d9; margin-bottom:4px; }}
+  .ai-caveat {{ margin-top:8px; font-size:0.78em; color:#888; }}
   .auth-bar {{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }}
   .auth-btn {{ padding:8px 16px; border-radius:6px; border:1px solid #ddd; background:white;
               cursor:pointer; font-size:0.9em; font-weight:600; }}
@@ -311,7 +310,7 @@ def build_dashboard(results: list[dict]) -> str:
 </style>
 </head>
 <body>
-  <h1>📊 US Daily Stock Signal Dashboard</h1>
+  <h1>📊 Daily Stock Signal Dashboard</h1>
   <div class="timestamp">Generated {now}</div>
 
   <div class="auth-bar">
@@ -323,7 +322,7 @@ def build_dashboard(results: list[dict]) -> str:
   <table>
     <tr>
       <th>Ticker</th><th>Open</th><th>Last Close</th><th>Signal</th><th>Why</th>
-      <th>Your Buy Price</th><th>Qty</th><th>P/L</th>
+      <th>Your Buy Price</th><th>Qty</th><th>P/L</th><th>Suggested Action</th>
     </tr>
     {summary_rows}
   </table>
@@ -345,6 +344,9 @@ def build_dashboard(results: list[dict]) -> str:
 
   <script>
     const currentPrices = {current_prices_js};
+    const currentSignals = {signals_js};
+    const stopLossPct = {STOP_LOSS_PCT};
+    const takeProfitPct = {TAKE_PROFIT_PCT};
     const currencySymbol = "{CURRENCY_SYMBOL}";
     const firebaseConfig = {firebase_config_js};
 
@@ -374,17 +376,38 @@ def build_dashboard(results: list[dict]) -> str:
       firebase.auth().signOut();
     }}
 
+    function getSuggestion(ticker, pctChange) {{
+      const signal = currentSignals[ticker];
+
+      if (signal === 'SELL') {{
+        return {{ text: 'Consider selling — signal turned bearish', color: '#d93025' }};
+      }}
+      if (signal === 'BUY') {{
+        return {{ text: 'Hold — uptrend still active', color: '#1e8e3e' }};
+      }}
+      // signal === 'HOLD': fall back to your own position's P/L
+      if (pctChange <= stopLossPct) {{
+        return {{ text: 'Down ' + pctChange.toFixed(1) + '% — consider your stop-loss', color: '#d93025' }};
+      }}
+      if (pctChange >= takeProfitPct) {{
+        return {{ text: 'Up ' + pctChange.toFixed(1) + '% — consider taking some profit', color: '#1e8e3e' }};
+      }}
+      return {{ text: 'Hold', color: '#e8a33d' }};
+    }}
+
     function updatePL(ticker, shouldSave) {{
       if (shouldSave === undefined) shouldSave = true;
       const buyInput = document.getElementById('buy_' + ticker);
       const qtyInput = document.getElementById('qty_' + ticker);
       const plCell = document.getElementById('pl_' + ticker);
+      const suggCell = document.getElementById('sugg_' + ticker);
       const buy = parseFloat(buyInput.value);
       const qty = parseFloat(qtyInput.value) || 0;
       const current = currentPrices[ticker];
 
       if (!buy || buy <= 0) {{
         plCell.innerHTML = '<span style="color:#999;">—</span>';
+        suggCell.innerHTML = '<span style="color:#999;">—</span>';
         if (shouldSave) clearPosition(ticker);
         return;
       }}
@@ -404,6 +427,10 @@ def build_dashboard(results: list[dict]) -> str:
       }}
 
       plCell.innerHTML = html;
+
+      const suggestion = getSuggestion(ticker, pctChange);
+      suggCell.innerHTML = '<span style="color:' + suggestion.color + ';font-weight:600;">' + suggestion.text + '</span>';
+
       if (shouldSave) savePosition(ticker, buyInput.value, qtyInput.value);
     }}
 
@@ -494,6 +521,97 @@ def build_dashboard(results: list[dict]) -> str:
 </html>"""
 
 
+def fetch_fundamentals(ticker: str) -> dict:
+    """
+    Fetch basic fundamentals for a US ticker via yfinance (free). Returns an
+    empty dict on any failure — fundamentals are a nice-to-have for the AI
+    analysis, not something that should ever break the rest of the dashboard.
+    """
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+    except Exception as e:
+        print(f"  (could not fetch fundamentals for {ticker}: {e})", file=sys.stderr)
+        return {}
+
+    return {
+        "pe_ratio": info.get("trailingPE"),
+        "forward_pe": info.get("forwardPE"),
+        "dividend_yield": info.get("dividendYield"),
+        "profit_margin": info.get("profitMargins"),
+        "revenue_growth": info.get("revenueGrowth"),
+        "debt_to_equity": info.get("debtToEquity"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+    }
+
+
+def generate_ai_analysis(ticker: str, signal_data: dict, fundamentals: dict) -> str | None:
+    """
+    Ask Claude for a short, plain-language take on this stock, combining the
+    technical signal with fundamentals (if any were fetched). Returns None
+    (and the dashboard just skips the AI section) if no API key is set, or
+    if the request fails for any reason — this must never break the rest of
+    the dashboard.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return None
+
+    fundamentals_lines = []
+    if fundamentals.get("pe_ratio"):
+        fundamentals_lines.append(f"P/E ratio: {fundamentals['pe_ratio']:.1f}")
+    if fundamentals.get("dividend_yield"):
+        fundamentals_lines.append(f"Dividend yield: {fundamentals['dividend_yield'] * 100:.2f}%")
+    if fundamentals.get("profit_margin") is not None:
+        fundamentals_lines.append(f"Profit margin: {fundamentals['profit_margin'] * 100:.1f}%")
+    if fundamentals.get("revenue_growth") is not None:
+        fundamentals_lines.append(f"Revenue growth (YoY): {fundamentals['revenue_growth'] * 100:.1f}%")
+    if fundamentals.get("debt_to_equity"):
+        fundamentals_lines.append(f"Debt-to-equity: {fundamentals['debt_to_equity']:.1f}")
+    if fundamentals.get("sector"):
+        fundamentals_lines.append(f"Sector: {fundamentals['sector']} ({fundamentals.get('industry', 'n/a')})")
+
+    fundamentals_block = (
+        "Fundamentals:\n" + "\n".join(f"- {line}" for line in fundamentals_lines)
+        if fundamentals_lines else
+        "Fundamentals: not available for this stock."
+    )
+
+    prompt = f"""Based only on the data below, write a brief 2-3 sentence analysis of \
+{ticker} for a retail investor's personal research dashboard. Mention both \
+supportive and risk factors where relevant. Describe what the data shows \
+rather than giving direct buy/sell instructions — the reader makes their \
+own decision.
+
+Technical signal: {signal_data['signal']}
+Reasons: {'; '.join(signal_data['reasons'])}
+
+{fundamentals_block}"""
+
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": ANTHROPIC_MODEL,
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"].strip()
+    except Exception as e:
+        print(f"  (AI analysis failed for {ticker}: {e})", file=sys.stderr)
+        return None
+
+
 def main():
     results = []
     for ticker in WATCHLIST:
@@ -504,6 +622,13 @@ def main():
             sig = generate_signal(df)
             sig["ticker"] = ticker
             sig["chart_html"] = build_chart_html(ticker, df)
+
+            if ENABLE_AI_ANALYSIS and os.environ.get("ANTHROPIC_API_KEY"):
+                fundamentals = fetch_fundamentals(ticker)
+                sig["ai_analysis"] = generate_ai_analysis(ticker, sig, fundamentals)
+            else:
+                sig["ai_analysis"] = None
+
             results.append(sig)
             print(f"  -> {sig['signal']} at ${sig['close']:.2f}")
         except Exception as e:
