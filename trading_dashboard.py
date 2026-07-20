@@ -551,7 +551,7 @@ def build_dashboard(results: list[dict]) -> str:
 
 
 def fetch_fundamentals(ticker: str) -> dict:
-    ""
+    """
     Fetch basic fundamentals for a US ticker via yfinance (free). Returns an
     empty dict on any failure — fundamentals are a nice-to-have for the AI
     analysis, not something that should ever break the rest of the dashboard.
