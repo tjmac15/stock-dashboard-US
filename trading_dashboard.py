@@ -1,4 +1,31 @@
 """
+Daily Stock Signal Dashboard
+=============================
+Pulls daily price history for a small watchlist, computes classic technical
+indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD signal for
+each stock, and writes everything to a single self-contained HTML dashboard
+you can open in your browser.
+
+This tool does NOT place trades. It only surfaces signals for you to review.
+
+HOW TO RUN
+----------
+1. Install dependencies (one time):
+       pip install yfinance pandas plotly
+
+2. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
+
+3. Run it:
+       python trading_dashboard.py
+
+4. Open the generated file:
+       dashboard.html
+
+5. (Optional) Automate the daily check:
+   - Mac/Linux: add a cron job, e.g. run at 9:00am every weekday:
+       0 9 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
+   - Windows: use Task Scheduler to run this script daily.
+
 DISCLAIMER
 ----------
 This is a technical-analysis educational tool, not financial advice.
@@ -7,8 +34,11 @@ in choppy or low-volume markets. Always do your own research and consider
 your own risk tolerance before trading.
 """
 
+import html
 import os
 import sys
+import xml.etree.ElementTree as ET
+from urllib.parse import quote
 from datetime import datetime
 
 import pandas as pd
@@ -29,7 +59,8 @@ MACD_SLOW = 26
 MACD_SIGNAL = 9
 OUTPUT_FILE = "dashboard.html"
 CURRENCY_SYMBOL = "$"
-STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag your stop-loss
+STOP_LOSS_PCT = -8      # if your position is down at least this % and the signal is still HOLD, flag CUT LOSS
+STOP_LOSS_WARNING_PCT = -5   # earlier heads-up before the real cut-loss line — down this much triggers a "watch it" warning
 TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal is still HOLD, flag taking some profit
 
 # Optional: AI-written analysis per stock, combining the technical signal with
@@ -40,7 +71,21 @@ TAKE_PROFIT_PCT = 20    # if your position is up at least this % and the signal 
 # (see README.md). If it's not set, this is skipped entirely and the
 # dashboard works exactly as before — no AI section shown.
 ENABLE_AI_ANALYSIS = True
-GEMINI_MODEL = "gemini-3.1-flash-lite"   # most generous free tier: 15 requests/min, 1,000/day
+GEMINI_MODEL = "gemini-3.1-flash-lite"   # current free-tier model (Google retires model names fairly often —
+                                          # if this one 404s too, check https://aistudio.google.com for the
+                                          # current free-tier model list and swap the string here)
+
+# Full company names for each ticker, used to search for recent news (ticker
+# symbols alone give poor search results — "TGT" finds almost nothing useful,
+# "Target Corporation" does). Update this if you change WATCHLIST.
+COMPANY_NAMES = {
+    "WFC": "Wells Fargo",
+    "CSCO": "Cisco Systems",
+    "XOM": "ExxonMobil",
+    "TGT": "Target Corporation",
+    "SBUX": "Starbucks",
+}
+NEWS_MAX_RESULTS = 3   # how many recent headlines to show per stock
 
 # Optional: Google sign-in + cloud sync for your buy price/qty entries, so
 # they survive across devices and browser data clears instead of relying on
@@ -49,12 +94,12 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"   # most generous free tier: 15 requests/
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
-    "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
-    "projectId": "stock-dashboard-1a7bd",
-    "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
-    "messagingSenderId": "466011958430",
-    "appId": "1:466011958430:web:434377d05c4ba90f691f8f",
+    "apiKey": "YOUR_API_KEY",
+    "authDomain": "YOUR_PROJECT_ID.firebaseapp.com",
+    "projectId": "YOUR_PROJECT_ID",
+    "storageBucket": "YOUR_PROJECT_ID.appspot.com",
+    "messagingSenderId": "YOUR_SENDER_ID",
+    "appId": "YOUR_APP_ID",
 }
 # ---------------------------------------------------------------------------
 
@@ -256,13 +301,28 @@ def build_dashboard(results: list[dict]) -> str:
 
     chart_sections = ""
     for r in results:
+        has_ai_text = bool(r.get("ai_analysis"))
+        has_news = bool(r.get("news"))
         ai_html = ""
-        if r.get("ai_analysis"):
+        if has_ai_text or has_news:
+            ai_text_html = f'<div>{r["ai_analysis"]}</div>' if has_ai_text else ""
+            news_html = ""
+            if has_news:
+                items_html = "".join(
+                    f'<li><a href="{n["link"]}" target="_blank" rel="noopener noreferrer">{html.escape(n["title"])}</a></li>'
+                    for n in r["news"]
+                )
+                news_html = f"""
+          <div class="news-list">
+            <div class="news-label">📰 Recent headlines</div>
+            <ul>{items_html}</ul>
+          </div>"""
             ai_html = f"""
         <div class="ai-analysis">
           <div class="ai-label">🤖 AI take on {r['ticker']}</div>
-          <div>{r['ai_analysis']}</div>
-          <div class="ai-caveat">AI-generated from the indicators (and fundamentals, where available) above — may be inaccurate, not financial advice.</div>
+          {ai_text_html}
+          {news_html}
+          <div class="ai-caveat">AI-generated from the indicators (and fundamentals, where available) above — may be inaccurate, not financial advice. Headlines link to their original source.</div>
         </div>"""
         chart_sections += f"""
         <div class="chart-card">
@@ -306,6 +366,12 @@ def build_dashboard(results: list[dict]) -> str:
                   border-radius:4px; font-size:0.9em; color:#333; line-height:1.5; }}
   .ai-label {{ font-weight:700; color:#6d28d9; margin-bottom:4px; }}
   .ai-caveat {{ margin-top:8px; font-size:0.78em; color:#888; }}
+  .news-list {{ margin-top:10px; }}
+  .news-label {{ font-weight:600; color:#555; font-size:0.85em; margin-bottom:4px; }}
+  .news-list ul {{ margin:0; padding-left:20px; }}
+  .news-list li {{ margin-bottom:3px; font-size:0.85em; }}
+  .news-list a {{ color:#4c1d95; text-decoration:none; }}
+  .news-list a:hover {{ text-decoration:underline; }}
   .auth-bar {{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }}
   .auth-btn {{ padding:8px 16px; border-radius:6px; border:1px solid #ddd; background:white;
               cursor:pointer; font-size:0.9em; font-weight:600; }}
@@ -350,6 +416,7 @@ def build_dashboard(results: list[dict]) -> str:
     const currentPrices = {current_prices_js};
     const currentSignals = {signals_js};
     const stopLossPct = {STOP_LOSS_PCT};
+    const stopLossWarningPct = {STOP_LOSS_WARNING_PCT};
     const takeProfitPct = {TAKE_PROFIT_PCT};
     const currencySymbol = "{CURRENCY_SYMBOL}";
     const firebaseConfig = {firebase_config_js};
@@ -384,19 +451,23 @@ def build_dashboard(results: list[dict]) -> str:
       const signal = currentSignals[ticker];
 
       if (signal === 'SELL') {{
-        return {{ text: 'Consider selling — signal turned bearish', color: '#d93025' }};
+        return {{ text: '🔻 Consider selling — signal turned bearish', color: '#d93025' }};
       }}
       if (signal === 'BUY') {{
-        return {{ text: 'Hold — uptrend still active', color: '#1e8e3e' }};
+        return {{ text: '📈 Uptrend still active — no action needed', color: '#1e8e3e' }};
       }}
-      // signal === 'HOLD': fall back to your own position's P/L
+      // signal === 'HOLD': fall back to your own position's P/L, with a
+      // graduated warning before the hard cut-loss line (not just a sudden jump)
       if (pctChange <= stopLossPct) {{
-        return {{ text: 'Down ' + pctChange.toFixed(1) + '% — consider your stop-loss', color: '#d93025' }};
+        return {{ text: '🔻 CUT LOSS — down ' + pctChange.toFixed(1) + '%', color: '#d93025' }};
+      }}
+      if (pctChange <= stopLossWarningPct) {{
+        return {{ text: '⚠️ Approaching stop-loss (' + pctChange.toFixed(1) + '%)', color: '#e8a33d' }};
       }}
       if (pctChange >= takeProfitPct) {{
-        return {{ text: 'Up ' + pctChange.toFixed(1) + '% — consider taking some profit', color: '#1e8e3e' }};
+        return {{ text: '💰 Consider taking some profit — up ' + pctChange.toFixed(1) + '%', color: '#1e8e3e' }};
       }}
-      return {{ text: 'Hold', color: '#e8a33d' }};
+      return {{ text: 'No action needed', color: '#999' }};
     }}
 
     function updatePL(ticker, shouldSave) {{
@@ -550,13 +621,42 @@ def fetch_fundamentals(ticker: str) -> dict:
     }
 
 
-def generate_ai_analysis(ticker: str, signal_data: dict, fundamentals: dict) -> str | None:
+def fetch_news(query: str, max_results: int = NEWS_MAX_RESULTS) -> list[dict]:
+    """
+    Fetch recent news headlines for a search query via Google News' public RSS
+    feed — free, no API key needed. Returns a list of {title, link, pub_date}
+    dicts, or an empty list on any failure (news is a nice-to-have, never
+    something that should break the rest of the dashboard).
+    """
+    try:
+        url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            print(f"  (news fetch failed for '{query}': HTTP {resp.status_code})", file=sys.stderr)
+            return []
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")[:max_results]
+        news = []
+        for item in items:
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            pub_date = (item.findtext("pubDate") or "").strip()
+            if title and link:
+                news.append({"title": title, "link": link, "pub_date": pub_date})
+        return news
+    except Exception as e:
+        print(f"  (news fetch failed for '{query}': {e})", file=sys.stderr)
+        return []
+
+
+
+def generate_ai_analysis(ticker: str, signal_data: dict, fundamentals: dict, news: list[dict]) -> str | None:
     """
     Ask Gemini for a short, plain-language take on this stock, combining the
-    technical signal with fundamentals (if any were fetched). Returns None
-    (and the dashboard just skips the AI section) if no API key is set, or
-    if the request fails for any reason — this must never break the rest of
-    the dashboard.
+    technical signal, fundamentals (if any were fetched), and recent news
+    headlines (if any were found). Returns None (and the dashboard just
+    skips the AI section) if no API key is set, or if the request fails for
+    any reason — this must never break the rest of the dashboard.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -582,14 +682,23 @@ def generate_ai_analysis(ticker: str, signal_data: dict, fundamentals: dict) -> 
         "Fundamentals: not available for this stock."
     )
 
+    news_block = (
+        "Recent headlines:\n" + "\n".join(f"- {n['title']}" for n in news)
+        if news else
+        "Recent headlines: none found."
+    )
+
     prompt = f"""Based only on the data below, write a brief 2-3 sentence analysis of \
 {ticker} for a retail investor's personal research dashboard. Mention both \
-supportive and risk factors where relevant. Describe what the data shows \
-rather than giving direct buy/sell instructions — the reader makes their \
-own decision.
+supportive and risk factors where relevant, and reference recent news if it's \
+relevant to the technical picture. Describe what the data shows rather than \
+giving direct buy/sell instructions — the reader makes their own decision.
 
 Technical signal: {signal_data['signal']}
 Reasons: {'; '.join(signal_data['reasons'])}
+
+{news_block}
+
 
 {fundamentals_block}"""
 
@@ -623,8 +732,12 @@ def main():
 
             if ENABLE_AI_ANALYSIS and os.environ.get("GEMINI_API_KEY"):
                 fundamentals = fetch_fundamentals(ticker)
-                sig["ai_analysis"] = generate_ai_analysis(ticker, sig, fundamentals)
+                company_name = COMPANY_NAMES.get(ticker, ticker)
+                news = fetch_news(f"{company_name} stock")
+                sig["news"] = news
+                sig["ai_analysis"] = generate_ai_analysis(ticker, sig, fundamentals, news)
             else:
+                sig["news"] = []
                 sig["ai_analysis"] = None
 
             results.append(sig)
