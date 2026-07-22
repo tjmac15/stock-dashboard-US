@@ -1,31 +1,4 @@
 """
-Daily Stock Signal Dashboard
-=============================
-Pulls daily price history for a small watchlist, computes classic technical
-indicators (SMA, RSI, MACD), derives a simple BUY / SELL / HOLD signal for
-each stock, and writes everything to a single self-contained HTML dashboard
-you can open in your browser.
-
-This tool does NOT place trades. It only surfaces signals for you to review.
-
-HOW TO RUN
-----------
-1. Install dependencies (one time):
-       pip install yfinance pandas plotly
-
-2. Edit the WATCHLIST list below (max ~5 tickers keeps it fast and readable).
-
-3. Run it:
-       python trading_dashboard.py
-
-4. Open the generated file:
-       dashboard.html
-
-5. (Optional) Automate the daily check:
-   - Mac/Linux: add a cron job, e.g. run at 9:00am every weekday:
-       0 9 * * 1-5 /usr/bin/python3 /path/to/trading_dashboard.py
-   - Windows: use Task Scheduler to run this script daily.
-
 DISCLAIMER
 ----------
 This is a technical-analysis educational tool, not financial advice.
@@ -94,7 +67,7 @@ NEWS_MAX_RESULTS = 3   # how many recent headlines to show per stock
 # free Firebase project (see README.md for exact steps) and paste your web
 # app's config values in below.
 FIREBASE_CONFIG = {
-"apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
+    "apiKey": "AIzaSyCgkyb5CflgDuEHpeIf_I-64eDqIYlKebs",
     "authDomain": "stock-dashboard-1a7bd.firebaseapp.com",
     "projectId": "stock-dashboard-1a7bd",
     "storageBucket": "stock-dashboard-1a7bd.firebasestorage.app",
@@ -319,7 +292,7 @@ def build_dashboard(results: list[dict]) -> str:
           </div>"""
             ai_html = f"""
         <div class="ai-analysis">
-          <div class="ai-label">🤖 AI take on {r['ticker']}</div>
+          <div class="ai-label">Analysis by Gemini AI {r['ticker']}</div>
           {ai_text_html}
           {news_html}
           <div class="ai-caveat">AI-generated from the indicators (and fundamentals, where available) above — may be inaccurate, not financial advice. Headlines link to their original source.</div>
@@ -380,7 +353,7 @@ def build_dashboard(results: list[dict]) -> str:
 </style>
 </head>
 <body>
-  <h1>📊 Daily Stock Signal Dashboard</h1>
+  <h1>US Stock Signal Dashboard</h1>
   <div class="timestamp">Generated {now}</div>
 
   <div class="auth-bar">
@@ -404,13 +377,6 @@ def build_dashboard(results: list[dict]) -> str:
   </div>
 
   {chart_sections}
-
-  <div class="disclaimer">
-    <strong>Not financial advice.</strong> These signals come from lagging technical
-    indicators (SMA crossovers, RSI, MACD) applied mechanically to recent price
-    history. They can and do produce false signals. Use this as one input among many,
-    do your own research, and only invest what you can afford to lose.
-  </div>
 
   <script>
     const currentPrices = {current_prices_js};
